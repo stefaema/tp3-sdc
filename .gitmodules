@@ -1,0 +1,3 @@
+[submodule "protected-mode-sdc"]
+	path = protected-mode-sdc
+	url = https://gitlab.com/sistemas-de-computacion-unc/protected-mode-sdc
