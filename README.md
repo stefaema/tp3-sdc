@@ -1,1 +1,62 @@
 # tp3-sdc
+# 3\. Desarrollo Práctico
+
+## 3.1. Tareas Pendientes (TODO List)
+
+- [ ] **Preparación del Entorno:**  
+      - [ ] Verificar que `nasm` (o `as`), `ld`, `qemu-system-i386` (o `x86_64`), `gdb`, `make`, `objdump`, `hd` (o `hexdump`) estén instalados.  
+      - [ ] Clonar el repositorio `protected-mode-sdc`.  
+      - [ ] Inicializar el submódulo `x86-bare-metal-examples` (`git submodule update --init --recursive`).  
+- [ ] **Selección y Comprensión del Código Base:**  
+      - [ ] Localizar un ejemplo base adecuado para pasar a modo protegido dentro del submódulo (ej: `x86-bare-metal-examples/protected_mode`).  
+      - [ ] Analizar el código base: entender la estructura MBR (si aplica), la definición de la GDT, el uso de `lgdt`, la modificación de `CR0`, el `ljmp` y la carga inicial de segmentos post-salto.  
+- [ ] **Implementación del Paso a Modo Protegido (Sin Macros):**  
+      - [ ] **Definir GDT:**  
+            - [ ] Crear manualmente las entradas de la GDT usando directivas de datos (`dw`, `dd` o equivalentes en la sintaxis elegida) en lugar de macros complejas.  
+            - [ ] Incluir al menos: Descriptor Nulo (índice 0).  
+            - [ ] Incluir Descriptor de Segmento de Código (ej: índice 1, ejecutable, DPL 0, base 0, límite 4GB).  
+            - [ ] Incluir Descriptor de Segmento de Datos (ej: índice 2, **escribible inicialmente**, DPL 0, base 0, límite 4GB).  
+            - [ ] Crear el Descriptor de GDT (puntero que contiene tamaño y dirección de la GDT).  
+      - [ ] **Código de Transición:**  
+            - [ ] Deshabilitar interrupciones (`cli`).  
+            - [ ] Cargar la GDT (`lgdt [gdt_descriptor]`).  
+            - [ ] Habilitar el bit PE en CR0 (`mov %cr0, %eax; orl $1, %eax; mov %eax, %cr0`).  
+            - [ ] Realizar el salto lejano (`ljmp $CODE_SEG, $protected_mode_label`) usando el selector del segmento de código definido (ej: `CODE_SEG = 0x08`).  
+      - [ ] **Código Post-Transición (en `.code32`):**  
+            - [ ] Cargar explícitamente los registros de segmento de datos (`DS`, `ES`, `SS`, etc.) con el selector del segmento de datos (ej: `DATA_SEG = 0x10`).  
+            - [ ] Configurar un stack básico si es necesario.  
+- [ ] **Prueba de Protección de Memoria (Solo Lectura):**  
+      - [ ] **Modificar Descriptor de Datos:** Cambiar los bits de acceso en la definición del Descriptor de Segmento de Datos para que sea de **solo lectura** (poner el bit 'Write' a 0).  
+      - [ ] **Recompilar.**  
+      - [ ] **Añadir Instrucción de Escritura:** Después de cargar los segmentos en modo protegido, añadir una instrucción que intente escribir en memoria usando el segmento de datos (ej: `movw $123, 0x1000`).  
+      - [ ] **Observar Falla en QEMU:** Ejecutar la imagen en QEMU y observar el comportamiento esperado (Triple Fault \-\> reinicio/cuelgue de QEMU).  
+- [ ] **Verificación con GDB:**  
+      - [ ] Lanzar QEMU con soporte para GDB (`-S -s` o `-S -gdb tcp::1234`).  
+      - [ ] Conectar GDB (`target remote ...`).  
+      - [ ] Establecer un breakpoint *antes* de la instrucción de escritura en el segmento RO.  
+      - [ ] Continuar la ejecución (`c`).  
+      - [ ] Ejecutar la instrucción de escritura (`si` o `stepi`).  
+      - [ ] Observar y documentar la excepción reportada por GDB (debería ser \#GP \- General Protection Fault, vector 13).  
+- [ ] **Verificación del Linker y la Imagen:**  
+      - [ ] **Ejecutar `objdump -d`** sobre el archivo objeto o ELF intermedio para ver el desensamblado y las direcciones relativas/absolutas.  
+      - [ ] **Ejecutar `hd` (o `hexdump -C`)** sobre el archivo de imagen final (`.img`).  
+      - [ ] **Comparar** la secuencia de bytes de las instrucciones clave en ambas salidas para verificar la ubicación del código según lo especificado en el script del linker (si se usa uno explícito, ej. `.` \= `0x7C00` para MBR) o la ubicación por defecto.  
+- [ ] **Prueba en Hardware Real (Opcional/Bonus):**  
+      - [ ] Usar `dd` para grabar la imagen `.img` en un pendrive (¡con precaución\!).  
+      - [ ] Intentar arrancar una PC desde el pendrive.  
+      - [ ] Documentar el resultado (ej: mensaje en pantalla, pantalla negra, etc.) y tomar una foto si es posible.  
+- [ ] **Documentación en el Informe:**  
+      - [ ] Incluir el código assembler final comentado.  
+      - [ ] Explicar detalladamente el proceso de definición de la GDT y la transición a modo protegido.  
+      - [ ] Explicar cómo se configuraron los descriptores de código y datos separados.  
+      - [ ] Describir la modificación para hacer el segmento de datos de solo lectura.  
+      - [ ] Explicar qué sucedió al intentar escribir (Triple Fault) y qué *debería* haber sucedido con un manejo de excepciones adecuado (\#GP Fault).  
+      - [ ] Incluir capturas de pantalla de GDB mostrando la detección de la excepción \#GP.  
+      - [ ] Responder: ¿Con qué valor se cargan los registros de segmento en modo protegido y por qué? (Solo CS por `ljmp`, los otros deben cargarse manualmente).  
+      - [ ] Incluir la comparación `objdump`/`hd` y la explicación.  
+      - [ ] Mencionar el resultado de la prueba en hardware real (y añadir foto si se hizo).  
+      - [ ] Responder a las preguntas teóricas faltantes del linker (dirección en script, `--oformat binary`).  
+- [ ] **Preparación de la Demostración:**  
+      - [ ] Tener listo el entorno para compilar y ejecutar en QEMU.  
+      - [ ] Preparar los comandos de GDB para mostrar los puntos clave (carga GDT, mod CR0, ljmp, breakpoint antes de escritura RO, paso sobre escritura y excepción).  
+      - [ ] Ensayar la explicación verbal del proceso.
