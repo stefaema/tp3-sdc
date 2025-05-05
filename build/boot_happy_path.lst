@@ -1,0 +1,210 @@
+     1                                  ; boot_happy_path.asm - Transición a Modo Protegido con Mensajes
+     2                                  
+     3                                  [bits 16]
+     4                                  [org 0x7c00]
+     5                                  
+     6                                  ; --- Inicialización Modo Real ---
+     7                                  start:
+     8                                      ; Configurar Segmentos y Stack Inicial
+     9 00000000 B80000                      mov ax, 0       ; Usar segmento 0
+    10 00000003 8ED8                        mov ds, ax ; cargar DS con 0. Datos en el segmento 0
+    11 00000005 8EC0                        mov es, ax ; cargar ES con 0. Extra en el segmento 0
+    12 00000007 8ED0                        mov ss, ax ; cargar SS con 0. Stack en el segmento 0 
+    13 00000009 BC007C                      mov sp, 0x7c00  ; Stack justo debajo de nuestro código. Este es el offset del bootloader.
+    14                                  
+    15                                      ; En este caso, todo se ejecuta en un solo segmento, así que no es necesario cargar otros segmentos con bases diferentes.
+    16                                      ; (En un sistema real, podríamos tener diferentes segmentos de código y datos). E.g. para los strings de mensajes.
+    17                                  
+    18                                      ; Limpiar la pantalla (Usando BIOS int 10h, AH=0x00, AL=0x03)
+    19 0000000C B80300                      mov ax, 0x0003  ; AH=0 (Set Video Mode), AL=3 (80x25 Texto)
+    20 0000000F CD10                        int 0x10
+    21                                  
+    22                                      ; Imprimir mensaje inicial (Usando BIOS int 10h, AH=0x0E)
+    23 00000011 BE[BD00]                    mov si, msg_starting
+    24 00000014 E82100                      call print16_bios
+    25                                  
+    26                                      ; --- Transición a Modo Protegido ---
+    27 00000017 BE[D600]                    mov si, msg_gdt_load 
+    28 0000001A E81B00                      call print16_bios ; Imprimir antes de deshabilitar interrupciones
+    29                                  
+    30 0000001D FA                          cli                 ; Deshabilitar interrupciones para no corromperlas con el cambio de modo
+    31 0000001E 0F0116[B700]                lgdt [gdt_descriptor] ; Cargar GDT
+    32                                  
+    33 00000023 BE[E700]                    mov si, msg_entering_pm
+    34 00000026 E80F00                      call print16_bios ; Aún podemos usar BIOS brevemente después de LGDT
+    35                                  
+    36 00000029 0F20C0                      mov eax, cr0        ; Obtener CR0
+    37 0000002C 6683C801                    or eax, 0x1         ; Poner el bit PE (Protection Enable)
+    38 00000030 0F22C0                      mov cr0, eax        ; Actualizar CR0 para entrar en modo protegido
+    39                                  
+    40                                      ; Salto lejano para cargar CS y limpiar pipeline
+    41 00000033 EA[4600]0800                jmp CODE_SEG:start_protected
+    42                                  
+    43                                  ; --- Rutina de Impresión Modo Real (BIOS) ---
+    44                                  
+    45                                  print16_bios:
+    46                                      ; PRECONDICIÓN: El registro SI debe apuntar al inicio de un string terminado en NUL (byte 0).
+    47                                      ; OBJETIVO: Imprimir ese string en la pantalla usando la BIOS.
+    48                                      ; MODO: Se ejecuta en Modo Real de 16 bits.
+    49                                      ; MODIFICA: Registros AX, SI (y potencialmente otros registros internos usados por la interrupción int 0x10).
+    50                                  
+    51 00000038 B40E                        mov ah, 0x0E        ; Función teletype (Imprimir caracter y avanzar cursor)
+    52                                  
+    53                                  .loop:                  ; Etiqueta para el inicio del bucle de impresión
+    54 0000003A AC                          lodsb               ; Cargar byte de [SI] en AL, luego incrementar SI automáticamente
+    55                                  
+    56                                      ; ANÁLISIS de lodsb:
+    57                                      ; 'lodsb' (Load String Byte) es una instrucción de cadena.
+    58                                      ; 1. Lee el byte al que apunta el registro DS:SI (como DS se puso a 0, lee de la dirección lineal contenida en SI).    
+    59                                      ; 2. Guarda ese byte en el registro AL.
+    60                                      ; 3. Incrementa automáticamente el registro SI en 1 (para apuntar al siguiente byte del string en la próxima iteración).
+    61                                  
+    62 0000003B 3C00                        cmp al, 0           ; Compara el caracter recién cargado (en AL) con 0.
+    63                                  
+    64                                      ; ANÁLISIS de cmp al, 0:
+    65                                      ; 1. Compara AL con el valor inmediato 0. Actualiza la ZF (Zero Flag) para reflejar el resultado.
+    66                                      ; El valor 0 se usa convencionalmente para marcar el final de un string
+    67                                      ; (string terminado en NUL).
+    68                                  
+    69 0000003D 7406                        je .done            ; Saltar a la etiqueta '.done' si ZF es 1 (si AL era 0)
+    70                                  
+    71 0000003F B700                        mov bh, 0x00        ; 
+    72                                  
+    73 00000041 CD10                        int 0x10            ; Llamar a la interrupción de video de la BIOS
+    74                                  
+    75                                      ; ANÁLISIS de int 0x10:
+    76                                      ; 'int' (Software Interrupt) causa una interrupción de software.
+    77                                      ; El número indica qué rutina de servicio de la BIOS queremos invocar (la 0x10 es para servicios de Video).
+    78                                      ;
+    79                                      ; En nuestro caso, ANTES del bucle pusimos 'mov ah, 0x0E'. La función 0x0E de la int 0x10 es la "Teletype Output" cuando se llama:
+    80                                      ; - Toma el caracter que está en el registro AL.
+    81                                      ; - Lo imprime en la pantalla en la posición ACTUAL del cursor.
+    82                                      ; - Avanza AUTOMÁTICAMENTE el cursor a la siguiente posición (maneja saltos de línea y scroll si es necesario).
+    83                                  
+    84 00000043 EBF5                        jmp .loop           ; Volver al inicio del bucle para procesar el siguiente caracter
+    85                                  
+    86                                      ; ANÁLISIS de jmp .loop:
+    87                                      ; Si no saltamos a '.done' (porque el caracter no era NUL), entonces
+    88                                      ; ejecutamos un salto incondicional (`jmp`) de vuelta a la etiqueta
+    89                                      ; `.loop` para cargar, comparar e imprimir el siguiente caracter del string.
+    90                                  
+    91                                  .done:                  ; Etiqueta a la que saltamos cuando encontramos el NUL
+    92 00000045 C3                          ret                 ; Vuelve a la rutina que llamó a 'print16_bios'
+    93                                  
+    94                                      
+    95                                  ; =========================================================================
+    96                                  [bits 32] ; A partir de aquí, estamos en modo protegido de 32 bits
+    97                                  ; =========================================================================
+    98                                  
+    99                                  start_protected:
+   100                                      ; --- Configuración Modo Protegido ---
+   101 00000046 66B81000                    mov ax, DATA_SEG    ; Cargar selector de datos en AX
+   102 0000004A 8ED8                        mov ds, ax
+   103 0000004C 8EC0                        mov es, ax
+   104 0000004E 8EE0                        mov fs, ax
+   105 00000050 8EE8                        mov gs, ax
+   106 00000052 8ED0                        mov ss, ax          ; Cargar SS (Segmento de Stack)
+   107                                  
+   108                                      ; Configurar un puntero de stack válido
+   109 00000054 BC00000900                  mov esp, 0x90000    ; Stack en 576KB
+   110                                  
+   111                                      ; --- Código Principal Modo Protegido ---
+   112                                      ; Imprimir mensajes usando acceso directo a memoria de video
+   113 00000059 BAE0810B00                  mov edx, VID_MEM_BASE + (2 * 80 * 3) ; Fila 3
+   114 0000005E BB[04010000]                mov ebx, msg_pm_active
+   115 00000063 E821000000                  call print32
+   116                                  
+   117 00000068 BA80820B00                  mov edx, VID_MEM_BASE + (2 * 80 * 4) ; Fila 4
+   118 0000006D BB[1B010000]                mov ebx, msg_seg_stack_set
+   119 00000072 E812000000                  call print32
+   120                                  
+   121                                      ; (Aquí iría la prueba RO en la siguiente versión)
+   122                                  
+   123 00000077 BAC0830B00                  mov edx, VID_MEM_BASE + (2 * 80 * 6) ; Fila 6
+   124 0000007C BB[3A010000]                mov ebx, msg_halting
+   125 00000081 E803000000                  call print32
+   126                                  
+   127                                  halt_loop:
+   128 00000086 F4                          hlt                 ; Detener CPU
+   129 00000087 EBFD                        jmp halt_loop       ; Bucle por si acaso
+   130                                  
+   131                                  
+   132                                  ; --- Rutina de Impresión Modo Protegido (Memoria Video) ---+
+   133                                  ; Escribir en memoria de video directamente utilizando esta base, que mapea memoria RAM a video.
+   134                                  VID_MEM_BASE equ 0xb8000
+   135                                  print32:
+   136 00000089 60                          pusha               ; Guardar registros
+   137                                      ; EBX apunta al string a imprimir. EBX aumenta automaticamente 
+   138                                      ; EDX apunta al buffer de consola digamos (memoria de video)
+   139                                      ; 
+   140                                  .loop:
+   141 0000008A 8A03                        mov al, [ebx]       ; Cargar caracter desde el string (EBX apunta al string)
+   142 0000008C B40F                        mov ah, 0x0F        ; Atributo: Blanco sobre negro
+   143 0000008E 3C00                        cmp al, 0           ; ¿Fin del string?
+   144 00000090 740B                        je .done
+   145 00000092 668902                      mov [edx], ax       ; Escribir caracter y atributo
+   146 00000095 83C301                      add ebx, 1          ; Avanzar puntero del string
+   147 00000098 83C202                      add edx, 2          ; Avanzar puntero de video
+   148 0000009B EBED                        jmp .loop
+   149                                  .done:
+   150 0000009D 61                          popa                ; Restaurar registros
+   151 0000009E C3                          ret
+   152                                  
+   153                                  ; =========================================================================
+   154                                  ; Datos y GDT
+   155                                  ; =========================================================================
+   156                                  
+   157                                  gdt_start:
+   158                                  gdt_null:
+   159 0000009F 00000000                    dd 0x0
+   160 000000A3 00000000                    dd 0x0
+   161                                  gdt_code: ; Selector 0x08
+   162 000000A7 FFFF                        dw 0xFFFF; Limite(15:0)
+   163 000000A9 0000                        dw 0x0000; Base(15:0)
+   164 000000AB 00                          db 0x00;   Base(23:16)
+   165 000000AC 9A                          db 0x9A;   Acceso (P=1,DPL=0,S=1,Type=1010 E/R)
+   166 000000AD CF                          db 0xCF;   Gran (G=1,D/B=1,L=0,AVL=0), Limite(19:16)
+   167 000000AE 00                          db 0x00;   Base(31:24)
+   168                                  gdt_data: ; Selector 0x10 - *** READ/WRITE ***
+   169 000000AF FFFF                        dw 0xFFFF; Limite(15:0)
+   170 000000B1 0000                        dw 0x0000; Base(15:0)
+   171 000000B3 00                          db 0x00;   Base(23:16)
+   172 000000B4 92                          db 0x92;   Acceso (P=1,DPL=0,S=1,Type=0010 R/W) <-- Bit RW=1
+   173 000000B5 CF                          db 0xCF;   Gran (G=1,D/B=1,L=0,AVL=0), Limite(19:16)
+   174 000000B6 00                          db 0x00;   Base(31:24)
+   175                                  gdt_end:
+   176                                  
+   177                                  ; Descriptor de GDT (Puntero para LGDT)
+   178                                  gdt_descriptor:
+   179 000000B7 1700                        dw gdt_end - gdt_start - 1 ; Límite (Tamaño - 1)
+   180 000000B9 [9F000000]                  dd gdt_start              ; Dirección Base de la GDT
+   181                                  
+   182                                  ; Constantes para Selectores
+   183                                  CODE_SEG equ gdt_code - gdt_start ; 0x08
+   184                                  DATA_SEG equ gdt_data - gdt_start ; 0x10
+   185                                  
+   186                                  ; Mensajes db 'Texto', {0x0D: Carriage Return, 0x0A: Line Feed, 0:NUL}
+   187 000000BD 426F6F746C6F616465-     msg_starting        db 'Bootloader Starting...', 0x0D, 0x0A, 0
+   187 000000C6 72205374617274696E-
+   187 000000CF 672E2E2E0D0A00     
+   188 000000D6 4C6F6164696E672047-     msg_gdt_load        db 'Loading GDT...', 0x0D, 0x0A, 0
+   188 000000DF 44542E2E2E0D0A00   
+   189 000000E7 456E746572696E6720-     msg_entering_pm     db 'Entering Protected Mode...', 0x0D, 0x0A, 0
+   189 000000F0 50726F746563746564-
+   189 000000F9 204D6F64652E2E2E0D-
+   189 00000102 0A00               
+   190 00000104 50726F746563746564-     msg_pm_active       db 'Protected Mode Active.', 0
+   190 0000010D 204D6F646520416374-
+   190 00000116 6976652E00         
+   191 0000011B 33322D626974205365-     msg_seg_stack_set   db '32-bit Segments and Stack Set.', 0
+   191 00000124 676D656E747320616E-
+   191 0000012D 6420537461636B2053-
+   191 00000136 65742E00           
+   192 0000013A 53797374656D204861-     msg_halting         db 'System Halted.', 0
+   192 00000143 6C7465642E00       
+   193                                  
+   194                                  ; --- Relleno y Firma de Arranque ---
+   195                                  %define BOOT_SECTOR_SIZE 512
+   196                                  %define BOOT_SIGNATURE_OFFSET (BOOT_SECTOR_SIZE - 2)
+   197 00000149 00<rep B5h>                 times BOOT_SIGNATURE_OFFSET - ($ - $$) db 0  ; Rellena hasta offset 510
+   198 000001FE 55AA                        dw 0xAA55                                    ; Firma Mágica

@@ -1,0 +1,38 @@
+# Configuration for Bochs - Happy Path
+
+# --- General Settings ---
+megs: 32                # Memory size in MB
+# cpu: model=bx_generic   # Use a generic but capable Bochs CPU model
+# IMPORTANT: Adjust ROM/VGA BIOS paths if Bochs is installed elsewhere
+# Common locations: /usr/share/bochs, /usr/local/share/bochs, etc.
+# Using $BXSHARE is preferred if Bochs sets this environment variable.
+romimage: file=/usr/local/share/bochs/BIOS-bochs-latest
+vgaromimage: file=/usr/local/share/bochs/VGABIOS-lgpl-latest.bin
+
+# --- Boot Options ---
+boot: floppy
+
+# --- Floppy Drive A Configuration ---
+# Points to the "happy path" boot image in the build directory
+floppya: 1_44=build/boot_happy_path.img, status=inserted
+
+# --- Peripherals ---
+mouse: enabled=0
+clock: sync=realtime, time0=local
+keyboard: type=at
+
+# --- Logging ---
+log: bochsout_happy.txt   # Log file specific to this run
+logprefix: %t%e%d         # Log prefix format (timestamp, event, device)
+panic: action=ask
+error: action=report
+info: action=report
+
+# --- Display ---
+# Use 'sdl', 'sdl2', 'x', 'term', or 'nogui'. 'sdl' is common for graphical output.
+# Use 'nogui' if you only want to use the debugger without a display window.
+display_library: sdl, options="gui_debug" # 'gui_debug' enables internal debugger controls
+
+# --- Debugger ---
+# Enable GDB stub for external debugging (gdb target remote localhost:1234)
+# dbstub: enabled=1, port=1234, text_base=0, data_base=0, bss_base=0

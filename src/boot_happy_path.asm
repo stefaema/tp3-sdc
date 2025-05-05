@@ -68,6 +68,7 @@ print16_bios:
 
     je .done            ; Saltar a la etiqueta '.done' si ZF es 1 (si AL era 0)
 
+    mov bh, 0x00        ; 
 
     int 0x10            ; Llamar a la interrupción de video de la BIOS
 
